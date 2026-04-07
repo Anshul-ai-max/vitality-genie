@@ -116,7 +116,7 @@ Generate exactly 7 workout days (${profile.workoutFrequency} training + ${7 - pr
 Return ONLY valid JSON.`;
 
     const apiKey = Deno.env.get("AI_GATEWAY_API_KEY");
-    const apiUrl = Deno.env.get("AI_GATEWAY_URL") || "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
+    const apiUrl = "https://openrouter.ai/api/v1/chat/completions";
 
     if (!apiKey) {
       console.error("AI_GATEWAY_API_KEY is not set in secrets");
@@ -127,23 +127,41 @@ Return ONLY valid JSON.`;
     }
 
     console.log("Calling AI API at:", apiUrl);
-    console.log("Using model: gemini-2.0-flash");
+    console.log("Using model: "mistralai/mistral-7b-instruct:free");
 
-    const aiResponse = await fetch(apiUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: "gemini-2.0-flash",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-        temperature: 0.7,
-      }),
-    });
+    const apiUrl = "https://openrouter.ai/api/v1/chat/completions";
+
+const aiResponse = await fetch(apiUrl, {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${apiKey}`,
+  },
+  body: JSON.stringify({
+    model: "mistralai/mistral-7b-instruct:free",
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: prompt }
+    ]
+  })
+});
+
+const data = await aiResponse.json();
+
+if (!aiResponse.ok) {
+  console.error("AI ERROR:", data);
+  throw new Error("AI failed");
+}
+
+const result = data.choices?.[0]?.message?.content;
+const data = await aiResponse.json();
+
+if (!aiResponse.ok) {
+  console.error("AI ERROR:", data);
+  throw new Error("AI failed");
+}
+
+const result = data.choices?.[0]?.message?.content;
 
     if (!aiResponse.ok) {
       const errText = await aiResponse.text();
