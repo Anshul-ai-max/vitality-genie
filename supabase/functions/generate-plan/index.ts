@@ -30,7 +30,6 @@ Deno.serve(async (req) => {
   try {
     const profile: UserProfile = await req.json();
 
-    // Calculate TDEE using Mifflin-St Jeor
     const bmr =
       profile.gender === "female"
         ? 10 * profile.weight + 6.25 * profile.height - 5 * profile.age - 161
@@ -59,7 +58,9 @@ RULES:
 - If the user is vegetarian with high protein targets, include a "proteinNote" explaining achievability
 - If supplement willingness is "basic" or "open", include "supplementSuggestions" array
 
-OUTPUT FORMAT (strict JSON, no markdown):
+IMPORTANT: Return ONLY valid JSON, no markdown, no code fences, no extra text.
+
+OUTPUT FORMAT:
 {
   "workouts": [
     {
@@ -111,17 +112,22 @@ OUTPUT FORMAT (strict JSON, no markdown):
 
 TDEE: ${tdee} kcal | Target: ${calories} kcal | Protein: ${protein}g | Carbs: ${carbs}g | Fat: ${fat}g
 
-Generate exactly 7 workout days (${profile.workoutFrequency} training + ${7 - profile.workoutFrequency} rest) and 4 meals (breakfast, lunch, snack, dinner) hitting the macro targets.`;
+Generate exactly 7 workout days (${profile.workoutFrequency} training + ${7 - profile.workoutFrequency} rest) and 4 meals (breakfast, lunch, snack, dinner) hitting the macro targets.
+Return ONLY valid JSON.`;
 
     const apiKey = Deno.env.get("AI_GATEWAY_API_KEY");
     const apiUrl = Deno.env.get("AI_GATEWAY_URL") || "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
 
     if (!apiKey) {
+      console.error("AI_GATEWAY_API_KEY is not set in secrets");
       return new Response(
-        JSON.stringify({ error: "AI_GATEWAY_API_KEY not configured" }),
+        JSON.stringify({ error: "AI_GATEWAY_API_KEY not configured. Add it in Supabase Dashboard → Project Settings → Secrets." }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+
+    console.log("Calling AI API at:", apiUrl);
+    console.log("Using model: gemini-2.0-flash");
 
     const aiResponse = await fetch(apiUrl, {
       method: "POST",
@@ -136,32 +142,48 @@ Generate exactly 7 workout days (${profile.workoutFrequency} training + ${7 - pr
           { role: "user", content: userPrompt },
         ],
         temperature: 0.7,
-        response_format: { type: "json_object" },
       }),
     });
 
     if (!aiResponse.ok) {
       const errText = await aiResponse.text();
-      console.error("AI API error:", errText);
+      console.error("AI API error status:", aiResponse.status);
+      console.error("AI API error body:", errText);
       return new Response(
-        JSON.stringify({ error: "AI generation failed", details: errText }),
+        JSON.stringify({ error: "AI generation failed", status: aiResponse.status, details: errText }),
         { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
     const aiData = await aiResponse.json();
+    console.log("AI response received, parsing content...");
+    
     const content = aiData.choices?.[0]?.message?.content;
 
     if (!content) {
+      console.error("Empty AI response. Full response:", JSON.stringify(aiData));
       return new Response(
-        JSON.stringify({ error: "Empty AI response" }),
+        JSON.stringify({ error: "Empty AI response", details: JSON.stringify(aiData) }),
         { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    const plan = JSON.parse(content);
+    // Clean markdown code fences if present
+    let cleanContent = content.trim();
+    if (cleanContent.startsWith("```json")) {
+      cleanContent = cleanContent.slice(7);
+    } else if (cleanContent.startsWith("```")) {
+      cleanContent = cleanContent.slice(3);
+    }
+    if (cleanContent.endsWith("```")) {
+      cleanContent = cleanContent.slice(0, -3);
+    }
+    cleanContent = cleanContent.trim();
+
+    const plan = JSON.parse(cleanContent);
     plan.generatedAt = new Date().toISOString();
 
+    console.log("Plan generated successfully");
     return new Response(JSON.stringify(plan), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 200,
