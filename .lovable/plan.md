@@ -1,30 +1,36 @@
 
 
-# Fix Edge Function Deploy Error
+# Fix: Edge Function 401 Error
 
 ## Problem
-The edge functions import CORS headers from `../_shared/cors.ts` using a relative path. Supabase Edge Functions don't support shared files across functions via relative imports — each function must be self-contained in its own folder.
+Your edge function returns `401: Invalid Token or Protected Header formatting`. This means JWT verification is enabled on the function, rejecting the anonymous/publishable key token.
 
-## Fix
+The `--no-verify-jwt` flag on deploy should disable this, but the `supabase/config.toml` has no `[functions]` section to explicitly disable JWT verification. The config may be overriding the deploy flag.
 
-### Option A: Inline CORS headers (recommended, simplest)
+## Fix (Two-Part)
 
-**File 1: `supabase/functions/generate-plan/index.ts`**
-- Remove `import { corsHeaders } from "../_shared/cors.ts";`
-- Add inline constant at the top:
-```typescript
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+### Part 1: Add function config to `supabase/config.toml`
+Add these lines to explicitly disable JWT verification for both functions:
+
+```toml
+[functions.generate-plan]
+verify_jwt = false
+
+[functions.modify-plan]
+verify_jwt = false
 ```
 
-**File 2: `supabase/functions/modify-plan/index.ts`**
-- Same change — remove the import, add inline constant.
+### Part 2: Redeploy
+After this change is applied, you need to redeploy from your terminal:
 
-No other changes needed. After this fix, redeploy:
-```
+```bash
 supabase functions deploy generate-plan --no-verify-jwt
 supabase functions deploy modify-plan --no-verify-jwt
 ```
+
+### Why This Happens
+The Supabase client sends `Authorization: Bearer sb_publishable_...` with every request. The edge function gateway tries to verify this as a JWT, but publishable keys aren't valid JWTs — they're just API keys. Disabling JWT verification tells the gateway to skip this check and pass the request through.
+
+### Alternative Quick Check
+If redeploying doesn't fix it, verify in your **Supabase Dashboard → Edge Functions** that the functions actually show as deployed and that JWT verification is turned OFF in the function settings there.
 
